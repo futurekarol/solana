@@ -297,3 +297,28 @@ impl RpcBlocksConfigWrapper {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcBlockSubscribeFilter {
+    All,
+    MentionsAccountOrProgram(String), // base58-encoded address
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcBlockSubscribeTransactionDetails {
+    Full,
+    Signatures,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcBlockSubscribeConfig {
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    pub encoding: Option<UiTransactionEncoding>,
+    pub transaction_details: Option<RpcBlockSubscribeTransactionDetails>,
+    pub show_rewards: Option<bool>,
+}

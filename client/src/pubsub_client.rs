@@ -2,7 +2,8 @@ use {
     crate::{
         rpc_config::{
             RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcSignatureSubscribeConfig,
-            RpcTransactionLogsConfig, RpcTransactionLogsFilter,
+            RpcTransactionLogsConfig, RpcTransactionLogsFilter, RpcBlockSubscribeConfig,
+            RpcBlockSubscribeFilter,
         },
         rpc_response::{
             Response as RpcResponse, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult,
@@ -18,6 +19,7 @@ use {
     },
     solana_account_decoder::UiAccount,
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
+    solana_transaction_status::UiConfirmedBlock,
     std::{
         marker::PhantomData,
         sync::{
@@ -49,8 +51,8 @@ pub enum PubsubClientError {
 }
 
 pub struct PubsubClientSubscription<T>
-where
-    T: DeserializeOwned,
+    where
+        T: DeserializeOwned,
 {
     message_type: PhantomData<T>,
     operation: &'static str,
@@ -61,8 +63,8 @@ where
 }
 
 impl<T> Drop for PubsubClientSubscription<T>
-where
-    T: DeserializeOwned,
+    where
+        T: DeserializeOwned,
 {
     fn drop(&mut self) {
         self.send_unsubscribe()
@@ -76,8 +78,8 @@ where
 }
 
 impl<T> PubsubClientSubscription<T>
-where
-    T: DeserializeOwned,
+    where
+        T: DeserializeOwned,
 {
     fn send_subscribe(
         writable_socket: &Arc<RwLock<WebSocket<AutoStream>>>,
@@ -116,7 +118,7 @@ where
                 json!({
                 "jsonrpc":"2.0","id":1,"method":method,"params":[self.subscription_id]
                 })
-                .to_string(),
+                    .to_string(),
             ))
             .map_err(|err| err.into())
     }
@@ -166,7 +168,7 @@ pub type PubsubSlotClientSubscription = PubsubClientSubscription<SlotInfo>;
 pub type SlotsSubscription = (PubsubSlotClientSubscription, Receiver<SlotInfo>);
 
 pub type PubsubSignatureClientSubscription =
-    PubsubClientSubscription<RpcResponse<RpcSignatureResult>>;
+PubsubClientSubscription<RpcResponse<RpcSignatureResult>>;
 pub type SignatureSubscription = (
     PubsubSignatureClientSubscription,
     Receiver<RpcResponse<RpcSignatureResult>>,
@@ -182,6 +184,12 @@ pub type PubsubAccountClientSubscription = PubsubClientSubscription<RpcResponse<
 pub type AccountSubscription = (
     PubsubAccountClientSubscription,
     Receiver<RpcResponse<UiAccount>>,
+);
+
+pub type PubsubBlockClientSubscription = PubsubClientSubscription<RpcResponse<UiConfirmedBlock>>;
+pub type BlockSubscription = (
+    PubsubBlockClientSubscription,
+    Receiver<RpcResponse<UiConfirmedBlock>>,
 );
 
 pub type PubsubRootClientSubscription = PubsubClientSubscription<Slot>;
@@ -234,7 +242,7 @@ impl PubsubClient {
                 config
             ]
         })
-        .to_string();
+            .to_string();
         let subscription_id = PubsubAccountClientSubscription::send_subscribe(&socket_clone, body)?;
 
         let t_cleanup = std::thread::spawn(move || {
@@ -244,6 +252,47 @@ impl PubsubClient {
         let result = PubsubClientSubscription {
             message_type: PhantomData,
             operation: "account",
+            socket,
+            subscription_id,
+            t_cleanup: Some(t_cleanup),
+            exit,
+        };
+
+        Ok((result, receiver))
+    }
+
+    pub fn block_subscribe(
+        url: &str,
+        filter: Option<RpcBlockSubscribeFilter>,
+        config: Option<RpcBlockSubscribeConfig>,
+    ) -> Result<BlockSubscription, PubsubClientError> {
+        let url = Url::parse(url)?;
+        let socket = connect_with_retry(url)?;
+        let (sender, receiver) = channel();
+
+        let socket = Arc::new(RwLock::new(socket));
+        let socket_clone = socket.clone();
+        let exit = Arc::new(AtomicBool::new(false));
+        let exit_clone = exit.clone();
+        let body = json!({
+            "jsonrpc":"2.0",
+            "id":1,
+            "method":"blockSubscribe",
+            "params":[
+                filter,
+                config
+            ]
+        })
+            .to_string();
+        let subscription_id = PubsubAccountClientSubscription::send_subscribe(&socket_clone, body)?;
+
+        let t_cleanup = std::thread::spawn(move || {
+            Self::cleanup_with_sender(exit_clone, &socket_clone, sender)
+        });
+
+        let result = PubsubClientSubscription {
+            message_type: PhantomData,
+            operation: "block",
             socket,
             subscription_id,
             t_cleanup: Some(t_cleanup),
@@ -272,7 +321,7 @@ impl PubsubClient {
             "method":"logsSubscribe",
             "params":[filter, config]
         })
-        .to_string();
+            .to_string();
 
         let subscription_id = PubsubLogsClientSubscription::send_subscribe(&socket_clone, body)?;
 
@@ -314,7 +363,7 @@ impl PubsubClient {
                 config
             ]
         })
-        .to_string();
+            .to_string();
         let subscription_id = PubsubProgramClientSubscription::send_subscribe(&socket_clone, body)?;
 
         let t_cleanup = std::thread::spawn(move || {
@@ -347,7 +396,7 @@ impl PubsubClient {
             "id":1,
             "method":"rootSubscribe",
         })
-        .to_string();
+            .to_string();
         let subscription_id = PubsubRootClientSubscription::send_subscribe(&socket_clone, body)?;
 
         let t_cleanup = std::thread::spawn(move || {
@@ -388,7 +437,7 @@ impl PubsubClient {
                 config
             ]
         })
-        .to_string();
+            .to_string();
         let subscription_id =
             PubsubSignatureClientSubscription::send_subscribe(&socket_clone, body)?;
 
@@ -423,7 +472,7 @@ impl PubsubClient {
             "method":"slotSubscribe",
             "params":[]
         })
-        .to_string();
+            .to_string();
         let subscription_id = PubsubSlotClientSubscription::send_subscribe(&socket_clone, body)?;
 
         let t_cleanup = std::thread::spawn(move || {
@@ -459,7 +508,7 @@ impl PubsubClient {
             "method":"slotsUpdatesSubscribe",
             "params":[]
         })
-        .to_string();
+            .to_string();
         let subscription_id = PubsubSlotClientSubscription::send_subscribe(&socket, body)?;
 
         let t_cleanup = std::thread::spawn(move || {
