@@ -290,8 +290,6 @@ pub struct RpcIdentity {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcVote {
-    /// Vote account address, as base-58 encoded string
-    pub vote_pubkey: String,
     pub slots: Vec<Slot>,
     pub hash: String,
     pub timestamp: Option<UnixTimestamp>,
@@ -431,6 +429,9 @@ pub struct RpcInflationReward {
 pub enum RpcBlockUpdateError {
     #[error("block store error")]
     BlockStoreError,
+
+    #[error("unsupported transaction version")]
+    UnsupportedTransactionVersion,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
